@@ -129,6 +129,9 @@ std::shared_ptr<facebook::velox::dwio::common::WriterOptions> makeParquetWriteOp
       parquetOptions->enableDictionary = false;
     }
   }
+  if (auto it = sparkConfs.find(kParquetEnablePageIndex); it != sparkConfs.end()) {
+    parquetOptions->enableWritePageIndex = boost::iequals(it->second, "true");
+  }
   writeOption->formatSpecificOptions = std::move(parquetOptions);
   return writeOption;
 }
