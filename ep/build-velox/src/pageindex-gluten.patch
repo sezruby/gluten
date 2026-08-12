@@ -1,0 +1,40 @@
+diff --git a/velox/dwio/parquet/writer/Writer.cpp b/velox/dwio/parquet/writer/Writer.cpp
+index 07ec01e61aa..6b2a4c9b46a 100644
+--- a/velox/dwio/parquet/writer/Writer.cpp
++++ b/velox/dwio/parquet/writer/Writer.cpp
+@@ -130,6 +130,7 @@ void ParquetWriterOptions::merge(
+   mergeIfSet(
+       dictionaryPageSizeLimit, parquetOverrides->dictionaryPageSizeLimit);
+   mergeIfSet(useParquetDataPageV2, parquetOverrides->useParquetDataPageV2);
++  mergeIfSet(enableWritePageIndex, parquetOverrides->enableWritePageIndex);
+   mergeIfSet(dataPageSize, parquetOverrides->dataPageSize);
+   mergeIfSet(batchSize, parquetOverrides->batchSize);
+   mergeIfSet(createdBy, parquetOverrides->createdBy);
+@@ -232,6 +233,12 @@ std::shared_ptr<WriterProperties> getArrowParquetWriterOptions(
+   } else {
+     properties = properties->dataPageVersion(arrow::ParquetDataPageVersion::V1);
+   }
++  if (parquetOptions.enableWritePageIndex.value_or(
++          facebook::velox::parquet::arrow::DEFAULT_IS_PAGE_INDEX_ENABLED)) {
++    properties = properties->enableWritePageIndex();
++  } else {
++    properties = properties->disableWritePageIndex();
++  }
+   if (parquetOptions.createdBy.has_value()) {
+     properties = properties->createdBy(parquetOptions.createdBy.value());
+   }
+diff --git a/velox/dwio/parquet/writer/Writer.h b/velox/dwio/parquet/writer/Writer.h
+index fba598e78a1..c0dbc460a74 100644
+--- a/velox/dwio/parquet/writer/Writer.h
++++ b/velox/dwio/parquet/writer/Writer.h
+@@ -150,6 +150,10 @@ struct ParquetWriterOptions : public dwio::common::FormatSpecificOptions {
+   /// regardless of precision.
+   std::optional<bool> enableStoreDecimalAsInteger;
+   std::optional<bool> useParquetDataPageV2;
++  /// Whether to write the Parquet page index (column index and offset index).
++  /// When enabled, per-page statistics are stored in the page index rather than
++  /// the data page headers. Defaults to false.
++  std::optional<bool> enableWritePageIndex;
+   std::optional<std::string> createdBy;
+
+   std::shared_ptr<arrow::MemoryPool> arrowMemoryPool;

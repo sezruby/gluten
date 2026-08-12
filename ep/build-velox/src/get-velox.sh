@@ -152,6 +152,22 @@ function apply_provided_velox_patch {
   fi
 }
 
+# Test-only: layer the merged upstream Velox page-index writer change
+# (facebookincubator/velox#18325) onto the pinned Velox tag, until it lands in
+# the pinned dft-* snapshot. Remove this once the Velox pin includes the field.
+function apply_local_gluten_patches {
+  local patch="${CURRENT_DIR}/pageindex-gluten.patch"
+  if [[ -f "$patch" ]]; then
+    echo "Applying local Gluten Velox patch: $patch"
+    pushd $VELOX_HOME
+    (git apply --check "$patch" && git apply "$patch") || {
+      echo "Failed to apply local Gluten Velox patch $patch"
+      exit 1
+    }
+    popd
+  fi
+}
+
 function apply_compilation_fixes {
   local SUDO_CMD=""
   if [ "$OS" == "Linux" ]; then
@@ -241,6 +257,8 @@ if [[ "$RUN_SETUP_SCRIPT" == "ON" ]]; then
 fi
 
 apply_provided_velox_patch
+
+apply_local_gluten_patches
 
 apply_compilation_fixes
 
