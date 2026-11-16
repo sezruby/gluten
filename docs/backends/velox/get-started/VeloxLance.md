@@ -69,7 +69,10 @@ lists, the `ArrayType` it exposes for them, without copying the values. Other co
 interval columns, leave the scan on vanilla Spark.
 
 When a Velox operator consumes the scan, Gluten plans `BatchScanExec` → `OffloadArrowDataExec` →
-`ArrowColumnarToVeloxColumnarExec`. A row-based consumer reads the Arrow batches through
+`ArrowColumnarToVeloxColumnarExec`. Gluten has lance-spark build the Arrow batches of a task in
+Gluten's task allocator (`LanceRuntime.setArrowBatchAllocatorProvider`), so `OffloadArrowDataExec`
+takes their vectors without copying them, and their memory is charged to the task through Spark's
+memory manager. A row-based consumer reads the Arrow batches through
 `ColumnarToRowExec` directly, with no round trip through Velox. The offload decision is made at
 plan time (`LanceArrowBatchScan`), so a scan Velox cannot read is detected before execution rather
 than failing inside Velox.
@@ -85,6 +88,3 @@ engages automatically whenever lance-spark is present on the classpath, and
 - Read-only; writes and DDL fall back to vanilla Spark.
 - No native Velox scan pushdown for Lance: filters and projection are applied by lance-spark in the
   Lance reader, not inside Velox.
-- lance-spark allocates the Arrow batches from Spark's Arrow allocator, a different root than
-  Gluten's task allocator, so `OffloadArrowDataExec` copies each batch into Gluten's allocator
-  before handing it to Velox.
