@@ -17,12 +17,14 @@
 package org.apache.gluten.execution
 
 import org.apache.gluten.extension.LanceArrowBatchScan
+import org.apache.gluten.memory.arrow.alloc.ArrowBufferAllocators
 
 import org.apache.spark.SparkConf
 import org.apache.spark.sql.{DataFrame, Row}
 import org.apache.spark.sql.execution.{ColumnarShuffleExchangeExec, ColumnarToRowExec, InputAdapter, SparkPlan}
 import org.apache.spark.sql.execution.datasources.v2.BatchScanExec
 import org.apache.spark.sql.types._
+import org.apache.spark.sql.vectorized.ArrowColumnVector
 
 import org.lance.spark.read.LanceScan
 
@@ -401,6 +403,51 @@ class VeloxLanceSuite extends VeloxWholeStageTransformerSuite {
           assertArrowLanceScan(df)
           checkGlutenPlan[HashAggregateExecBaseTransformer](df)
           assertScanFeedsVelox(df)
+      }
+    }
+  }
+
+  test("lance builds the Arrow batches of a task in the task's Arrow allocator") {
+    withLanceVectorView(
+      "lance_vectors_alloc",
+      rows = 200,
+      writeOptions = Map("max_row_per_file" -> "80"),
+      readOptions = Map("batch_size" -> "32")) {
+      val df = spark.sql("select id, vec, doc, multi from lance_vectors_alloc")
+      assertArrowLanceScan(df)
+      val scan = lanceScans(df).head
+      val factory = scan.readerFactory
+      val partitions = scan.inputPartitions
+      // Every vector, both the ones Lance imports and the ones it builds (here the vector columns),
+      // lives in the allocator OffloadArrowDataExec offloads with, so it adopts them in place.
+      val read = spark.sparkContext
+        .parallelize(partitions, partitions.size)
+        .map {
+          partition =>
+            val allocator = ArrowBufferAllocators.contextInstance()
+            val reader = factory.createColumnarReader(partition)
+            try {
+              var rows = 0
+              var inTaskAllocator = true
+              while (reader.next()) {
+                val batch = reader.get()
+                rows += batch.numRows()
+                for (i <- 0 until batch.numCols()) {
+                  val vector = batch.column(i).asInstanceOf[ArrowColumnVector].getValueVector
+                  inTaskAllocator &&= vector.getAllocator eq allocator
+                }
+                inTaskAllocator &&= allocator.getAllocatedMemory > 0
+              }
+              (rows, inTaskAllocator)
+            } finally {
+              reader.close()
+            }
+        }
+        .collect()
+      assert(read.map(_._1).sum == 200)
+      assert(read.forall(_._2), "Expected every Arrow batch vector in the task's Arrow allocator")
+      runQueryAndCompare("select id, vec, doc, multi from lance_vectors_alloc where id % 7 = 0") {
+        df => assertScanFeedsVelox(df)
       }
     }
   }
